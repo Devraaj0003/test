@@ -234,3 +234,188 @@ const AddBook = () => {
 };
 
 export default AddBook;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///BUS MANAGEMENT SYSTEM
+
+// Backend (mkdir server.js and copy this code.........)
+const express = require('express');
+const mysql = require('mysql');
+const app = express();
+const port = 3000;
+
+app.use(express.json());
+
+// Database connection
+const db = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '',
+    database: 'bus_management'
+});
+
+db.connect((err) => {
+    if (err) throw err;
+    console.log('Connected to MySQL');
+});
+
+// API to search buses
+app.get('/api/buses', (req, res) => {
+    const { source, destination, date } = req.query;
+    if (!source || !destination || !date) {
+        return res.status(400).send({ message: 'Source, destination, and date are required.' });
+    }
+
+    const query = `SELECT * FROM buses WHERE source = ? AND destination = ? AND DATE(departure_time) = ?`;
+    console.log('Query:', query, 'Params:', [source, destination, date]);
+
+    db.query(query, [source, destination, date], (err, results) => {
+        if (err) {
+            console.error('Database error:', err);
+            return res.status(500).send(err);
+        }
+        res.json(results);
+    });
+});
+
+
+// API to book a bus
+app.post('/api/bookings', (req, res) => {
+    const { bus_id, user_name, seats_booked } = req.body;
+
+    // Check seat availability
+    const checkQuery = `SELECT available_seats FROM buses WHERE id = ?`;
+    db.query(checkQuery, [bus_id], (err, results) => {
+        if (err) return res.status(500).send(err);
+        if (results[0].available_seats < seats_booked) {
+            return res.status(400).send({ message: 'Not enough seats available.' });
+        }
+
+        // Update available seats
+        const updateQuery = `UPDATE buses SET available_seats = available_seats - ? WHERE id = ?`;
+        db.query(updateQuery, [seats_booked, bus_id], (err) => {
+            if (err) return res.status(500).send(err);
+
+            // Add booking to bookings table
+            const insertQuery = `INSERT INTO bookings (bus_id, user_name, seats_booked) VALUES (?, ?, ?)`;
+            db.query(insertQuery, [bus_id, user_name, seats_booked], (err) => {
+                if (err) return res.status(500).send(err);
+                res.send({ message: 'Booking confirmed!', bus_id, user_name, seats_booked });
+            });
+        });
+    });
+});
+
+app.listen(port, () => console.log(`Server running on http://localhost:${port}`));
+
+// SQL Queries for Database Setup and Sample Data
+/*
+CREATE DATABASE bus_management;
+
+USE bus_management;
+
+CREATE TABLE buses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    source VARCHAR(50) NOT NULL,
+    destination VARCHAR(50) NOT NULL,
+    departure_time DATETIME NOT NULL,
+    ticket_price DECIMAL(10, 2) NOT NULL,
+    available_seats INT NOT NULL
+);
+
+CREATE TABLE bookings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bus_id INT NOT NULL,
+    user_name VARCHAR(100) NOT NULL,
+    seats_booked INT NOT NULL,
+    FOREIGN KEY (bus_id) REFERENCES buses(id)
+);
+
+-- Insert sample bus data
+INSERT INTO buses (source, destination, departure_time, ticket_price, available_seats) VALUES
+('City A', 'City B', '2025-01-10 08:00:00', 15.50, 40),
+('City A', 'City C', '2025-01-10 09:30:00', 20.00, 30),
+('City B', 'City C', '2025-01-10 11:00:00', 25.00, 25),
+('City C', 'City A', '2025-01-10 14:00:00', 18.75, 35);
+
+-- Insert sample booking data
+INSERT INTO bookings (bus_id, user_name, seats_booked) VALUES
+(1, 'John Doe', 2),
+(2, 'Jane Smith', 3),
+(3, 'Alice Johnson', 1);
+*/
+
+// Frontend (React) copy to app.js file.....
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const App = () => {
+    const [searchParams, setSearchParams] = useState({ source: '', destination: '', date: '' });
+    const [buses, setBuses] = useState([]);
+    const [booking, setBooking] = useState({ bus_id: '', user_name: '', seats_booked: '' });
+
+    const searchBuses = async () => {
+        try {
+            const response = await axios.get('/api/buses', { params: searchParams });
+            setBuses(response.data);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const bookBus = async () => {
+        try {
+            const response = await axios.post('/api/bookings', booking);
+            alert(response.data.message);
+        } catch (error) {
+            alert(error.response.data.message);
+        }
+    };
+
+    return (
+        <div>
+            <h1>Bus Management System</h1>
+
+            {/* Search Buses */}
+            <div>
+                <h2>Search Buses</h2>
+                <input type="text" placeholder="Source" onChange={(e) => setSearchParams({ ...searchParams, source: e.target.value })} />
+                <input type="text" placeholder="Destination" onChange={(e) => setSearchParams({ ...searchParams, destination: e.target.value })} />
+                <input
+                    type="date"
+                    onChange={(e) =>
+                        setSearchParams({
+                            ...searchParams,
+                            date: e.target.value, // Ensure this matches the required format
+                        })
+                    }
+                />
+
+                <button onClick={searchBuses}>Search</button>
+            </div>
+
+            {/* Display Buses */}
+            <div>
+                <h2>Available Buses</h2>
+                <ul>
+                    {buses.map((bus) => (
+                        <li key={bus.id}>
+                            {bus.source} - {bus.destination} | Departure: {bus.departure_time} | Price: {bus.ticket_price} | Available Seats: {bus.available_seats}
+                            <button onClick={() => setBooking({ ...booking, bus_id: bus.id })}>Book</button>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+
+            {/* Book Bus */}
+            <div>
+                <h2>Book Bus</h2>
+                <input type="text" placeholder="Your Name" onChange={(e) => setBooking({ ...booking, user_name: e.target.value })} />
+                <input type="number" placeholder="Seats" onChange={(e) => setBooking({ ...booking, seats_booked: e.target.value })} />
+                <button onClick={bookBus}>Confirm Booking</button>
+            </div>
+        </div>
+    );
+};
+
+export default App;
